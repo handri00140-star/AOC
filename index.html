@@ -146,7 +146,36 @@ td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:12px;vertica
 <div class="modal-overlay" id="modal"><div class="modal-box"><div class="modal-header"><h3 id="modal-title"></h3><button class="modal-close" onclick="hideModal()"><i class="fas fa-xmark"></i></button></div><div class="modal-body" id="modal-body"></div><div class="modal-footer" id="modal-footer"></div></div></div>
 <div class="toast-container" id="toast-box"></div>
 <script>
-var DB={get:function(k){try{return JSON.parse(localStorage.getItem('erp5r_'+k)||'[]')}catch(e){return[]}},set:function(k,v){localStorage.setItem('erp5r_'+k,JSON.stringify(v))},uid:function(){return 'u'+Date.now().toString(36)+Math.random().toString(36).substr(2,5)}};
+// ==== GANTI KE BACKEND (API + MySQL) - jangan pakai localStorage lagi ====
+// Ganti URL di bawah ini dengan domain backend Railway kamu setelah di-deploy
+var API_BASE = 'https://erp5r-backend-production.up.railway.app';
+var _cache = {};
+var _pendingSave = {};
+function _flushSave(k){
+  if(_pendingSave[k]) return; // sudah ada request jalan untuk key ini
+  _pendingSave[k] = true;
+  fetch(API_BASE + '/api/data/' + k, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ value: _cache[k] })
+  }).catch(function(e){ console.error('Gagal simpan ke server ('+k+'):', e); })
+    .finally(function(){ _pendingSave[k] = false; });
+}
+var DB = {
+  get: function(k){ return _cache[k] || []; },
+  set: function(k, v){ _cache[k] = v; _flushSave(k); },
+  uid: function(){ return 'u'+Date.now().toString(36)+Math.random().toString(36).substr(2,5); }
+};
+function loadAllDataFromServer(cb){
+  fetch(API_BASE + '/api/data').then(function(r){ return r.json(); }).then(function(data){
+    _cache = data || {};
+    cb();
+  }).catch(function(e){
+    console.error('Gagal ambil data dari server:', e);
+    alert('Tidak bisa terhubung ke server backend. Cek koneksi internet atau hubungi admin.');
+    cb();
+  });
+}
 var BULAN=['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
 var CAT5R=['Ringkas','Rapi','Resik','Rawat','Rajin'];
 var ROLES={admin:'Admin',pengawas:'Pengawas',spv:'SPV',pelaksana:'Pelaksana'};
@@ -168,7 +197,6 @@ function hideModal(){document.getElementById('modal').classList.remove('show')}
 document.getElementById('modal').addEventListener('click',function(e){if(e.target===this)hideModal()});
 function logAct(desc){var a=DB.get('activities');a.push({id:DB.uid(),desc:desc,date:todayStr(),ts:Date.now()});if(a.length>80)a.splice(0,a.length-80);DB.set('activities',a)}
 function ensureAdmin(){var users=DB.get('users');var found=false;for(var i=0;i<users.length;i++){if(users[i].username==='admin'){found=true;break;}}if(!found){users.push({id:'admin_default',name:'Administrator',username:'admin',password:'admin123',dept:'GM',role:'admin',areas:[],ts:Date.now()});DB.set('users',users);}}
-ensureAdmin();
 
 function seedFromLogin(){
   if(DB.get('areas').length>0){doLoginDirect('admin','admin123');return;}
@@ -374,7 +402,10 @@ var _klY,_klM;
 function pgKlasemen(){var now=new Date();if(_klY===undefined){_klY=now.getFullYear();_klM=now.getMonth();}var areas=DB.get('areas').filter(function(a){return a.type==='lomba'});var scores=[];areas.forEach(function(a){var s=calcScore(a.id,_klY,_klM);if(s)scores.push(s);});scores.sort(function(a,b){return b.final-a.final});var h='<div class="card"><div class="card-header"><div class="card-title">Klasemen Lomba 5R</div><div style="display:flex;gap:5px;align-items:center"><button class="btn btn-outline btn-sm" onclick="_klM=(_klM+11)%12;_klY=_klM===11?_klY-1:_klY;pgKlasemen()"><i class="fas fa-chevron-left"></i></button><span style="font-weight:600;font-size:11px;min-width:110px;text-align:center">'+BULAN[_klM]+' '+_klY+'</span><button class="btn btn-outline btn-sm" onclick="_klM=(_klM+1)%12;_klY=_klM===0?_klY+1:_klY;pgKlasemen()"><i class="fas fa-chevron-right"></i></button></div></div>';if(scores.length<3){h+='<div class="empty-state"><i class="fas fa-trophy"></i><p>Minimal 3 area lomba dengan data penilaian untuk menampilkan podium.</p></div>';}else{h+='<div class="podium">';for(var i=0;i<3;i++){h+='<div class="podium-item podium-'+(i+1)+'"><div class="podium-bar">'+(i+1)+'</div><div class="podium-label">'+scores[i].area.name+'<br><small>('+scores[i].final+')</small></div></div>';}h+='</div>';}h+='<table style="margin-top:15px"><thead><tr><th>Peringkat</th><th>Area</th><th>Skor Akhir</th></tr></thead><tbody>';scores.forEach(function(s,i){h+='<tr><td style="font-weight:800">'+(i+1)+'</td><td style="font-weight:600">'+s.area.name+'</td><td style="font-weight:800;color:var(--primary)">'+s.final+'</td></tr>';});h+='</tbody></table></div>';document.getElementById('content').innerHTML=h;}
 
 document.getElementById('top-date').textContent=new Date().toLocaleDateString('id-ID',{weekday:'long',day:'numeric',month:'long',year:'numeric'});
-var s=getSession();if(s){CU=s;document.getElementById('login-screen').style.display='none';document.getElementById('app').style.display='flex';buildMenu();buildSidebarUser();nav('dashboard');}
+loadAllDataFromServer(function(){
+  ensureAdmin();
+  var s=getSession();if(s){CU=s;document.getElementById('login-screen').style.display='none';document.getElementById('app').style.display='flex';buildMenu();buildSidebarUser();nav('dashboard');}
+});
 </script>
 </body>
 </html>
