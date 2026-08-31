@@ -152,19 +152,29 @@ td{padding:8px 10px;border-bottom:1px solid var(--border);font-size:12px;vertica
 var API_BASE = 'https://erp5r-backend-production.up.railway.app';
 var _cache = {};
 var _pendingSave = {};
-function _flushSave(k){
-  if(_pendingSave[k]) return; // sudah ada request jalan untuk key ini
+var _dirtyAgain = {};
+function _flushSave(k, cb){
+  if(_pendingSave[k]){ _dirtyAgain[k] = cb || _dirtyAgain[k] || null; return; } // sudah ada request jalan untuk key ini, tandai perlu kirim ulang
   _pendingSave[k] = true;
   fetch(API_BASE + '/api/data/' + k, {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({ value: _cache[k] })
-  }).catch(function(e){ console.error('Gagal simpan ke server ('+k+'):', e); })
-    .finally(function(){ _pendingSave[k] = false; });
+  }).then(function(r){
+    if(!r.ok) throw new Error('HTTP '+r.status);
+    if(cb) cb(true);
+  }).catch(function(e){
+    console.error('Gagal simpan ke server ('+k+'):', e);
+    if(typeof toast==='function') toast('Gagal menyimpan ke server, cek koneksi lalu coba lagi.','error');
+    if(cb) cb(false);
+  }).finally(function(){
+    _pendingSave[k] = false;
+    if(_dirtyAgain[k] !== undefined){ var next=_dirtyAgain[k]; delete _dirtyAgain[k]; _flushSave(k, next); }
+  });
 }
 var DB = {
   get: function(k){ return _cache[k] || []; },
-  set: function(k, v){ _cache[k] = v; _flushSave(k); },
+  set: function(k, v, cb){ _cache[k] = v; _flushSave(k, cb); },
   uid: function(){ return 'u'+Date.now().toString(36)+Math.random().toString(36).substr(2,5); }
 };
 function loadAllDataFromServer(cb){
@@ -476,7 +486,11 @@ function pgInputPen(){
   h+='<div class="form-group" style="margin:0"><label class="form-label">Tanggal</label><input type="date" class="form-input" style="width:150px" value="'+_ipD+'" onchange="_ipD=this.value;pgInputPen()"></div>';
   h+='<div class="form-group" style="margin:0"><label class="form-label">Shift</label><select class="form-select" style="width:100px" onchange="_ipS=this.value;pgInputPen()"><option value="pagi"'+(_ipS==='pagi'?' selected':'')+'>Pagi</option><option value="siang"'+(_ipS==='siang'?' selected':'')+'>Siang</option></select></div>';
   h+='</div>';
-  if(cls.length===0){h+='<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>Pilih area dan pastikan checksheet sudah dibuat.</p></div>';}else{
+  if(areas.length===0){
+    h+='<div class="empty-state"><i class="fas fa-lock"></i><p>Anda belum ditugaskan ke area manapun, sehingga tidak ada yang bisa dinilai.<br>Hubungi Admin untuk di-assign ke area lewat menu <strong>Master User</strong>.</p></div>';
+  }else if(cls.length===0){
+    h+='<div class="empty-state"><i class="fas fa-clipboard-list"></i><p>Area <strong>'+(areas.find(function(a){return a.id===_ipA})||{}).name+'</strong> belum punya item Checksheet, jadi form penilaian &amp; tombol Simpan belum bisa ditampilkan.</p>'+(CU.role==='admin'?'<button class="btn btn-primary" style="margin-top:8px" onclick="nav(\'master-checksheet\')"><i class="fas fa-clipboard-check"></i>Buat Checksheet Sekarang</button>':'<p style="font-size:11px;color:var(--text-muted);margin-top:4px">Hubungi Admin untuk membuat Checksheet area ini di menu Master Checksheet.</p>')+'</div>';
+  }else{
     var ppi=Math.round(100/cls.length*100)/100;h+='<div class="info-box info-ok"><i class="fas fa-calculator"></i>'+cls.length+' item x '+ppi+' = <strong>100</strong> poin maksimal</div>';
     var editPic=(CU.role==='admin'||CU.role==='pelaksana');var editSpv=(CU.role==='admin'||CU.role==='spv');var editPw=(CU.role==='admin'||CU.role==='pengawas');
     if(CU.role==='spv'||CU.role==='pelaksana'||CU.role==='pengawas'){h+='<div class="info-box info-warn"><i class="fas fa-lock"></i>Anda hanya bisa mengisi kolom <strong>'+(CU.role==='pelaksana'?'PIC OK':CU.role==='spv'?'SPV OK':'Pengawas')+'</strong>. Kolom lain hanya bisa dilihat.</div>';}
@@ -491,7 +505,7 @@ function pgInputPen(){
 }
 function togRad(el,field){var isSel=el.classList.contains('sel-ok');el.parentElement.querySelectorAll('.radio-btn').forEach(function(b){b.className='radio-btn'});if(!isSel)el.classList.add('sel-ok');}
 function togRadPw(el,val){el.parentElement.querySelectorAll('.radio-btn').forEach(function(b){b.className='radio-btn'});if(val==='ok')el.classList.add('sel-ok');else if(val==='tidak')el.classList.add('sel-tidak');else el.classList.add('sel-skip');}
-function savePen(){var cls=DB.get('checklists').filter(function(c){return c.areaId===_ipA});var items=[];var cells=document.querySelectorAll('.chk-cell');var idx=0;cls.forEach(function(c){var picOk=cells[idx].querySelector('.sel-ok')?true:false;idx++;var spvOk=cells[idx].querySelector('.sel-ok')?true:false;idx++;var pwEl=cells[idx].querySelector('.sel-ok,.sel-tidak,.sel-skip');var pwSt=pwEl?(pwEl.classList.contains('sel-ok')?'ok':pwEl.classList.contains('sel-tidak')?'tidak':'skip'):'skip';idx++;items.push({clId:c.id,picOk:picOk,spvOk:spvOk,pwSt:pwSt});});var list=DB.get('penilaian').filter(function(p){return !(p.areaId===_ipA&&p.date===_ipD&&p.shift===_ipS)});list.push({id:DB.uid(),areaId:_ipA,date:_ipD,shift:_ipS,items:items,submittedBy:CU.id,ts:Date.now()});DB.set('penilaian',list);toast('Penilaian tersimpan');logAct('Input penilaian '+_ipD+' shift '+_ipS);}
+function savePen(){var cls=DB.get('checklists').filter(function(c){return c.areaId===_ipA});var items=[];var cells=document.querySelectorAll('.chk-cell');var idx=0;cls.forEach(function(c){var picOk=cells[idx].querySelector('.sel-ok')?true:false;idx++;var spvOk=cells[idx].querySelector('.sel-ok')?true:false;idx++;var pwEl=cells[idx].querySelector('.sel-ok,.sel-tidak,.sel-skip');var pwSt=pwEl?(pwEl.classList.contains('sel-ok')?'ok':pwEl.classList.contains('sel-tidak')?'tidak':'skip'):'skip';idx++;items.push({clId:c.id,picOk:picOk,spvOk:spvOk,pwSt:pwSt});});var list=DB.get('penilaian').filter(function(p){return !(p.areaId===_ipA&&p.date===_ipD&&p.shift===_ipS)});list.push({id:DB.uid(),areaId:_ipA,date:_ipD,shift:_ipS,items:items,submittedBy:CU.id,ts:Date.now()});DB.set('penilaian',list,function(ok){if(ok){toast('Penilaian tersimpan');logAct('Input penilaian '+_ipD+' shift '+_ipS);}});}
 
 function pgInputIni(){var areas=DB.get('areas');if(CU.role==='spv'||CU.role==='pelaksana'){if(CU.areas && CU.areas.length > 0) { areas = areas.filter(function(a){ return CU.areas.indexOf(a.id) !== -1; }); } else { areas = []; }} var list=DB.get('inisiatif').filter(function(i){return i.date.substring(0,7)===mPrefix(new Date().getFullYear(),new Date().getMonth())}); var h='<div class="card"><div class="card-header"><div class="card-title">Laporan Inisiatif 5R</div><button class="btn btn-primary" onclick="modalIni()"><i class="fas fa-plus"></i>Tambah</button></div>'; if(list.length===0){h+='<div class="empty-state"><i class="fas fa-lightbulb"></i><p>Belum ada laporan.</p></div>';}else{h+='<table><thead><tr><th>Tgl</th><th>Area</th><th>Keterangan</th><th>Pelapor</th></tr></thead><tbody>';list.forEach(function(i){var a=areas.find(function(x){return x.id===i.areaId});h+='<tr><td>'+fmtD(i.date)+'</td><td>'+(a?a.name:'-')+'</td><td>'+i.desc+'</td><td>'+(i.reporter||'-')+'</td></tr>';});h+='</tbody></table>';} h+='</div>';document.getElementById('content').innerHTML=h;}
 function modalIni(){var areas=DB.get('areas');if(CU.role==='spv'||CU.role==='pelaksana'){if(CU.areas && CU.areas.length > 0) { areas = areas.filter(function(a){ return CU.areas.indexOf(a.id) !== -1; }); } else { areas = []; }} var opts=areas.map(function(a){return'<option value="'+a.id+'">'+a.name+'</option>'}).join('');showModal('Tambah Inisiatif','<div class="form-group"><label class="form-label">Area</label><select class="form-select" id="f-ia">'+opts+'</select></div><div class="form-group"><label class="form-label">Keterangan</label><textarea class="form-textarea" id="f-id"></textarea></div>','<button class="btn btn-outline" onclick="hideModal()">Batal</button><button class="btn btn-primary" onclick="saveIni()">Simpan</button>');}
