@@ -421,50 +421,26 @@ function delUser(id){var u=DB.get('users').find(function(x){return x.id===id});s
 
 var _pkY,_pkM;
 function pgJadwalPiket(){var now=new Date();if(_pkY===undefined){_pkY=now.getFullYear();_pkM=now.getMonth();}var areas=DB.get('areas');var sched=DB.get('piket_kantin');var n=daysInMonth(_pkY,_pkM);var ao=areas.map(function(a){return'<option value="'+a.id+'">'+a.name+'</option>'}).join('');var h='<div class="card"><div class="card-header"><div class="card-title">Jadwal Piket Kantin - '+BULAN[_pkM]+' '+_pkY+'</div><div style="display:flex;gap:5px;align-items:center"><button class="btn btn-outline btn-sm" onclick="_pkM=(_pkM+11)%12;_pkY=_pkM===11?_pkY-1:_pkY;pgJadwalPiket()"><i class="fas fa-chevron-left"></i></button><span style="font-weight:600;font-size:11px;min-width:110px;text-align:center">'+BULAN[_pkM]+' '+_pkY+'</span><button class="btn btn-outline btn-sm" onclick="_pkM=(_pkM+1)%12;_pkY=_pkM===0?_pkY+1:_pkY;pgJadwalPiket()"><i class="fas fa-chevron-right"></i></button></div></div>';
-  var allDepts=[...new Set(areas.map(function(a){return a.dept;}))].filter(Boolean);
-  var incl=DB.get('piket_dept_include');
-  if(!incl||incl.length===0){incl=allDepts.slice();}
-  if(allDepts.length>0){
-    h+='<div class="card" style="background:#f9fafb;margin-bottom:12px"><div class="card-title" style="margin-bottom:8px">Departemen yang Ikut Piket Kantin</div><div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px">'+allDepts.map(function(d){return '<label style="display:flex;align-items:center;gap:5px;font-size:12px"><input type="checkbox" class="pk-dept-chk" value="'+d+'" '+(incl.indexOf(d)!==-1?'checked':'')+'> '+d+'</label>';}).join('')+'</div><button class="btn btn-outline btn-sm" onclick="savePiketDeptInclude()"><i class="fas fa-save"></i> Simpan Pengaturan Dept</button></div>';
-  }
-  if(areas.length>0){h+='<div class="info-box info-warn"><i class="fas fa-shuffle"></i>Generate otomatis: 1 Area (dari Dept yang dicentang) ditugaskan piket untuk 1 minggu penuh (Pagi & Sore), diacak & bergantian tiap minggu.</div>';h+='<button class="btn btn-primary" onclick="genRollingPiket()" style="margin-bottom:12px"><i class="fas fa-shuffle"></i> Generate Rolling Piket Mingguan</button>';}
+  if(areas.length>0){h+='<div class="info-box info-warn"><i class="fas fa-shuffle"></i>Generate otomatis: 1 Area ditugaskan piket per hari (Pagi & Sore), bergiliran/rolling setiap hari secara berurutan.</div>';h+='<button class="btn btn-primary" onclick="genRollingPiket()" style="margin-bottom:12px"><i class="fas fa-shuffle"></i> Generate Rolling Piket Harian</button>';}
   if(areas.length>0){h+='<div style="margin-bottom:10px;display:flex;gap:7px;flex-wrap:wrap;align-items:end"><div class="form-group" style="margin:0"><label class="form-label">Area</label><select class="form-select" id="bp-a" style="min-width:150px"><option value="">--</option>'+ao+'</select></div><div class="form-group" style="margin:0"><label class="form-label">Shift</label><select class="form-select" id="bp-s" style="min-width:80px"><option value="pagi">Pagi</option><option value="sore">Sore</option><option value="both">Keduanya</option></select></div><div class="form-group" style="margin:0"><label class="form-label">Dari</label><input type="number" class="form-input" id="bp-ds" min="1" max="'+n+'" value="1" style="width:58px"></div><div class="form-group" style="margin:0"><label class="form-label">Sampai</label><input type="number" class="form-input" id="bp-de" min="1" max="'+n+'" value="'+n+'" style="width:58px"></div><button class="btn btn-primary btn-sm" onclick="bulkPK()"><i class="fas fa-bolt"></i>Assign Manual</button></div>';}h+='<div style="max-height:420px;overflow-y:auto"><table><thead><tr><th style="width:40px;text-align:center">Tgl</th><th>Pagi</th><th>Sore</th></tr></thead><tbody>';for(var d=1;d<=n;d++){var ds=_pkY+'-'+String(_pkM+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');var p=sched.find(function(s){return s.date===ds&&s.shift==='pagi'});var sr=sched.find(function(x){return x.date===ds&&x.shift==='sore'});h+='<tr><td style="font-weight:600;text-align:center">'+d+'</td><td><select class="form-select" style="padding:3px 6px;font-size:10px" onchange="savePKEv(\''+ds+'\',\'pagi\',this.value)"><option value="">--</option>'+areas.map(function(a){return'<option value="'+a.id+'"'+(p&&p.areaId===a.id?' selected':'')+'>'+a.name+'</option>'}).join('')+'</select></td><td><select class="form-select" style="padding:3px 6px;font-size:10px" onchange="savePKEv(\''+ds+'\',\'sore\',this.value)"><option value="">--</option>'+areas.map(function(a){return'<option value="'+a.id+'"'+(sr&&sr.areaId===a.id?' selected':'')+'>'+a.name+'</option>'}).join('')+'</select></td></tr>';}h+='</tbody></table></div></div>';document.getElementById('content').innerHTML=h;}
-function savePiketDeptInclude(){
-  var chks=document.querySelectorAll('.pk-dept-chk');
-  var incl=[];
-  chks.forEach(function(c){if(c.checked)incl.push(c.value);});
-  if(incl.length===0){toast('Minimal 1 Departemen harus dicentang','error');return;}
-  DB.set('piket_dept_include',incl);
-  toast('Pengaturan Departemen piket disimpan');
-  logAct('Update dept piket kantin: '+incl.join(', '));
-}
 function genRollingPiket(){
   var areas=DB.get('areas');
   if(areas.length===0){toast('Belum ada Area','error');return;}
-  var incl=DB.get('piket_dept_include');
-  var allDepts=[...new Set(areas.map(function(a){return a.dept;}))].filter(Boolean);
-  if(!incl||incl.length===0){incl=allDepts;}
-  var eligible=areas.filter(function(a){return incl.indexOf(a.dept)!==-1;});
-  if(eligible.length===0){toast('Tidak ada Area pada Departemen yang dicentang','error');return;}
-  var shuffled=eligible.slice();
+  var shuffled=areas.slice();
   for(var i=shuffled.length-1;i>0;i--){var j=Math.floor(Math.random()*(i+1));var t=shuffled[i];shuffled[i]=shuffled[j];shuffled[j]=t;}
   var n=daysInMonth(_pkY,_pkM);
   var list=DB.get('piket_kantin');
-  var weekMap={}; // weekStart -> areaId
-  var idx=0;
   for(var d=1;d<=n;d++){
     var ds=_pkY+'-'+String(_pkM+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');
-    var ws=weekStart(ds);
-    if(!weekMap[ws]){ weekMap[ws]=shuffled[idx%shuffled.length].id; idx++; }
-    var aId=weekMap[ws];
+    var aId=shuffled[(d-1)%shuffled.length].id;
     list=list.filter(function(x){return!(x.date===ds&&(x.shift==='pagi'||x.shift==='sore'))});
     list.push({id:DB.uid(),areaId:aId,date:ds,shift:'pagi',ts:Date.now()});
     list.push({id:DB.uid(),areaId:aId,date:ds,shift:'sore',ts:Date.now()});
   }
   DB.set('piket_kantin',list);
-  toast('Rolling Piket Mingguan berhasil di-acak!');
+  toast('Rolling Piket Harian berhasil di-acak!');
   pgJadwalPiket();
-  logAct('Generate rolling piket mingguan '+BULAN[_pkM]+' '+_pkY);
+  logAct('Generate rolling piket harian '+BULAN[_pkM]+' '+_pkY);
 }
 function savePKEv(date,shift,areaId){var list=DB.get('piket_kantin').filter(function(s){return!(s.date===date&&s.shift===shift)});if(areaId)list.push({id:DB.uid(),areaId:areaId,date:date,shift:shift,ts:Date.now()});DB.set('piket_kantin',list);}
 function bulkPK(){var aId=document.getElementById('bp-a').value;var shift=document.getElementById('bp-s').value;var s=parseInt(document.getElementById('bp-ds').value)||1;var e=parseInt(document.getElementById('bp-de').value)||daysInMonth(_pkY,_pkM);if(!aId){toast('Pilih area','error');return;}var list=DB.get('piket_kantin');for(var d=s;d<=e;d++){var ds=_pkY+'-'+String(_pkM+1).padStart(2,'0')+'-'+String(d).padStart(2,'0');if(shift==='pagi'||shift==='both'){list=list.filter(function(x){return!(x.date===ds&&x.shift==='pagi')});list.push({id:DB.uid(),areaId:aId,date:ds,shift:'pagi',ts:Date.now()});}if(shift==='sore'||shift==='both'){list=list.filter(function(x){return!(x.date===ds&&x.shift==='sore')});list.push({id:DB.uid(),areaId:aId,date:ds,shift:'sore',ts:Date.now()});}}DB.set('piket_kantin',list);toast('Di-assign');pgJadwalPiket();}
